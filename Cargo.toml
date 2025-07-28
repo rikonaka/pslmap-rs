@@ -1,7 +1,9 @@
 [package]
-name = "pmap"
+name = "pslmap"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 clap = { version="^4", features=["derive"] }
+subnetwork = "^0"
+pistol = "^4"
