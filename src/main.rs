@@ -1,3 +1,4 @@
+use clap::ArgAction;
 use clap::Parser;
 use pistol::PistolLogger;
 use pistol::PistolRunner;
@@ -12,6 +13,7 @@ use std::net::Ipv6Addr;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::time::Duration;
 use subnetwork::Ipv4Pool;
 use subnetwork::Ipv6Pool;
 
@@ -57,7 +59,15 @@ fn target_parser(target: &str) -> Vec<IpAddr> {
         if is_subnet {
             let pool = Ipv4Pool::from_str(target)
                 .expect(&format!("can not convert target {} to Ipv4Pool", target));
-            let all_ips: Vec<IpAddr> = pool.into_iter().map(|x| x.into()).collect();
+            let last = pool.len();
+            let mut all_ips = Vec::new();
+            for (i, ip) in pool.into_iter().enumerate() {
+                if i == 0 || (last > 0 && i == last - 1) {
+                    continue;
+                } else {
+                    all_ips.push(ip.into());
+                }
+            }
             all_ips
         } else {
             let ip = Ipv4Addr::from_str(target)
@@ -68,7 +78,15 @@ fn target_parser(target: &str) -> Vec<IpAddr> {
         if is_subnet {
             let pool = Ipv6Pool::from_str(target)
                 .expect(&format!("can not convert target {} to Ipv6Pool", target));
-            let all_ips: Vec<IpAddr> = pool.into_iter().map(|x| x.into()).collect();
+            let last = pool.len();
+            let mut all_ips = Vec::new();
+            for (i, ip) in pool.into_iter().enumerate() {
+                if i == 0 || (last > 0 && i == last - 1) {
+                    continue;
+                } else {
+                    all_ips.push(ip.into());
+                }
+            }
             all_ips
         } else {
             let ip = Ipv6Addr::from_str(target)
@@ -86,12 +104,10 @@ fn target_from_file(filename: &str) -> Vec<IpAddr> {
     let reader = BufReader::new(fp);
 
     let mut ret = Vec::new();
-    let mut i = 0;
     for line in reader.lines() {
         let line = line.expect("can not read line");
         let targets = target_parser(&line);
         ret.extend(targets);
-        i += 1;
     }
     ret
 }
@@ -100,7 +116,7 @@ fn target_from_input(target: &str) -> Vec<IpAddr> {
     target_parser(target)
 }
 
-fn ping_scan(targets: &[IpAddr]) {
+fn ping_scan(targets: &[IpAddr], timeout: f64) {
     let _pr =
         PistolRunner::init(PistolLogger::None, None, None).expect("init pistol runner failed");
 
@@ -110,11 +126,14 @@ fn ping_scan(targets: &[IpAddr]) {
         pistol_targets.push(t);
     }
 
+    println!("{}", targets.len());
+
     let num_threads = None;
     let src_addr = None;
     let src_port = None;
     // let timeout = ;
     let max_attempts = 2;
+    let timeout = Some(Duration::from_secs_f64(timeout));
     let ret = icmp_ping(
         &pistol_targets,
         num_threads,
@@ -122,7 +141,9 @@ fn ping_scan(targets: &[IpAddr]) {
         src_port,
         timeout,
         max_attempts,
-    );
+    )
+    .expect("icmp ping failed");
+    println!("{}", ret);
 }
 
 /// Nmap rust version.
@@ -138,8 +159,12 @@ struct Args {
     filename: String,
 
     /// Ping Scan - disable port scan (same as nmap -sn option)
-    #[arg(long, default_value = "")]
-    pingscan: String,
+    #[arg(long, action(ArgAction::SetTrue))]
+    pingscan: bool,
+
+    /// Timeout
+    #[arg(long, default_value_t = 1.0)]
+    timeout: f64,
 
     /// The udp listen port
     #[arg(short, long, default_value = "")]
@@ -165,5 +190,9 @@ fn main() {
 
     if targets.len() == 0 {
         panic!("unable to parse the target");
+    }
+
+    if args.pingscan {
+        ping_scan(&targets, args.timeout);
     }
 }
