@@ -7,15 +7,15 @@ use pistol::icmp_ping;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
-use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::Mutex;
 use std::time::Duration;
-use subnetwork::Ipv4Pool;
-use subnetwork::Ipv6Pool;
+
+static IPV6_FIRST: LazyLock<Arc<Mutex<bool>>> = LazyLock::new(|| Arc::new(Mutex::new(false)));
 
 static IPV4_IEGAL_CHARS: LazyLock<Arc<Vec<char>>> = LazyLock::new(|| {
     let mut ipv4_legal_chars = Vec::new();
@@ -38,12 +38,54 @@ static IPV6_IEGAL_CHARS: LazyLock<Arc<Vec<char>>> = LazyLock::new(|| {
     Arc::new(ipv6_legal_chars)
 });
 
-fn target_parser(target: &str) -> Vec<IpAddr> {
+fn ports_parser(ports: &str) -> Option<Vec<u16>> {
+    // 80,81,443-999
+    if ports.trim().len() == 0 {
+        return None;
+    }
+
+    let mut ret = Vec::new();
+    let ports_split: Vec<&str> = ports
+        .split(",")
+        .filter(|x| x.trim().len() == 0)
+        .map(|x| x.trim())
+        .collect();
+    for ps in ports_split {
+        if ps.contains("-") {
+            let range_split: Vec<&str> = ps
+                .split("-")
+                .filter(|x| x.trim().len() == 0)
+                .map(|x| x.trim())
+                .collect();
+            if range_split.len() == 2 {
+                let start: u16 = range_split[0]
+                    .parse()
+                    .expect(&format!("convert {} to u16 failed", range_split[0]));
+                let end: u16 = range_split[1]
+                    .parse()
+                    .expect(&format!("convert {} to u16 failed", range_split[1]));
+                if start < end {
+                    for p in start..=end {
+                        ret.push(p);
+                    }
+                } else {
+                    panic!("{}(start) >= {}(end)", start, end);
+                }
+            }
+        } else {
+            let p: u16 = ps.parse().expect(&format!("convert {} to u16 failed", ps));
+            ret.push(p);
+        }
+    }
+    Some(ret)
+}
+
+fn target_parser(target_addr: &str, target_ports: &str) -> Vec<Target> {
     let mut is_ipv4 = true;
     let mut is_ipv6 = true;
     let mut is_subnet = false;
 
-    for c in target.chars() {
+    for c in target_addr.chars() {
         if !IPV4_IEGAL_CHARS.contains(&c) {
             is_ipv4 = false;
         }
@@ -55,87 +97,82 @@ fn target_parser(target: &str) -> Vec<IpAddr> {
         }
     }
 
+    let ports = ports_parser(target_ports);
+
     if is_ipv4 && !is_ipv6 {
         if is_subnet {
-            let pool = Ipv4Pool::from_str(target)
-                .expect(&format!("can not convert target {} to Ipv4Pool", target));
-            let last = pool.len();
-            let mut all_ips = Vec::new();
-            for (i, ip) in pool.into_iter().enumerate() {
-                if i == 0 || (last > 0 && i == last - 1) {
-                    continue;
-                } else {
-                    all_ips.push(ip.into());
-                }
-            }
-            all_ips
+            let targets = Target::from_subnet(target_addr, ports).expect(&format!(
+                "can not convert subnet {} to targets",
+                target_addr
+            ));
+            targets
         } else {
-            let ip = Ipv4Addr::from_str(target)
-                .expect(&format!("can not convert target {} to Ipv4Addr", target));
-            vec![ip.into()]
+            let ip = Ipv4Addr::from_str(target_addr).expect(&format!(
+                "can not convert target {} to Ipv4Addr",
+                target_addr
+            ));
+            let target = Target::new(ip.into(), ports);
+            vec![target]
         }
     } else if !is_ipv4 && is_ipv6 {
         if is_subnet {
-            let pool = Ipv6Pool::from_str(target)
-                .expect(&format!("can not convert target {} to Ipv6Pool", target));
-            let last = pool.len();
-            let mut all_ips = Vec::new();
-            for (i, ip) in pool.into_iter().enumerate() {
-                if i == 0 || (last > 0 && i == last - 1) {
-                    continue;
-                } else {
-                    all_ips.push(ip.into());
-                }
-            }
-            all_ips
+            let targets = Target::from_subnet(target_addr, ports).expect(&format!(
+                "can not convert subnet {} to targets",
+                target_addr
+            ));
+            targets
         } else {
-            let ip = Ipv6Addr::from_str(target)
-                .expect(&format!("can not convert target {} to Ipv6Addr", target));
-            vec![ip.into()]
+            let ip = Ipv6Addr::from_str(target_addr).expect(&format!(
+                "can not convert target {} to Ipv6Addr",
+                target_addr
+            ));
+            let target = Target::new(ip.into(), ports);
+            vec![target]
         }
     } else {
-        // just panic as soon as possible
-        panic!("can not convert target {} to IpAddr", target);
+        // parser as domain name
+        let ipv6_first = IPV6_FIRST.lock().expect("try lock IPV6_FIRST failed");
+        let targets = if *ipv6_first {
+            Target::from_domain6(target_addr, ports)
+                .expect(&format!("convert domain {} to target failed", target_addr))
+        } else {
+            Target::from_domain(target_addr, ports)
+                .expect(&format!("convert domain {} to target failed", target_addr))
+        };
+        targets
     }
 }
 
-fn target_from_file(filename: &str) -> Vec<IpAddr> {
+fn target_from_file(filename: &str, target_ports: &str) -> Vec<Target> {
     let fp = File::open(filename).expect(&format!("can not open file [{}]", filename));
     let reader = BufReader::new(fp);
 
     let mut ret = Vec::new();
     for line in reader.lines() {
         let line = line.expect("can not read line");
-        let targets = target_parser(&line);
+        // ignore the port here
+        let targets = target_parser(&line, target_ports);
         ret.extend(targets);
     }
     ret
 }
 
-fn target_from_input(target: &str) -> Vec<IpAddr> {
-    target_parser(target)
+fn target_from_input(target_addr: &str, target_ports: &str) -> Vec<Target> {
+    target_parser(target_addr, target_ports)
 }
 
-fn ping_scan(targets: &[IpAddr], timeout: f64) {
+fn ping_scan(targets: &[Target], timeout: f64) {
     let _pr =
         PistolRunner::init(PistolLogger::None, None, None).expect("init pistol runner failed");
 
-    let mut pistol_targets = Vec::new();
-    for &ip in targets {
-        let t = Target::new(ip, None);
-        pistol_targets.push(t);
-    }
-
-    println!("{}", targets.len());
-
+    println!("target len: {}", targets.len());
     let num_threads = None;
     let src_addr = None;
     let src_port = None;
-    // let timeout = ;
     let max_attempts = 2;
     let timeout = Some(Duration::from_secs_f64(timeout));
     let ret = icmp_ping(
-        &pistol_targets,
+        &targets,
         num_threads,
         src_addr,
         src_port,
@@ -158,13 +195,21 @@ struct Args {
     #[arg(short, long, default_value = "")]
     filename: String,
 
+    /// Specified ports
+    #[arg(short, long, default_value = "")]
+    ports: String,
+
     /// Ping Scan - disable port scan (same as nmap -sn option)
-    #[arg(long, action(ArgAction::SetTrue))]
+    #[arg(long, action(ArgAction::SetTrue), default_value_t = false)]
     pingscan: bool,
 
     /// Timeout
     #[arg(long, default_value_t = 1.0)]
     timeout: f64,
+
+    /// Set the IPv6 address to have the highest priority (this means that when the target is a domain name, the program will first use the IPv6 address as the target address)
+    #[arg(long, action(ArgAction::SetTrue), default_value_t = false)]
+    ipv6: bool,
 
     /// The udp listen port
     #[arg(short, long, default_value = "")]
@@ -178,11 +223,17 @@ struct Args {
 fn main() {
     let args = Args::parse();
     let mut targets = Vec::new();
+
+    if args.ipv6 {
+        let mut ipv6_first = IPV6_FIRST.lock().expect("try lock IPV6_FIRST failed");
+        (*ipv6_first) = true;
+    }
+
     if args.target.len() > 0 {
-        let t = target_from_input(&args.target);
+        let t = target_from_input(&args.target, &args.ports);
         targets.extend(t);
     } else if args.filename.len() > 0 {
-        let t = target_from_file(&args.filename);
+        let t = target_from_file(&args.filename, &args.ports);
         targets.extend(t);
     } else {
         panic!("please set target first");
