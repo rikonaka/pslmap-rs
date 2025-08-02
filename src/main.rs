@@ -38,13 +38,13 @@ struct Args {
     #[arg(short, long, default_value = "")]
     ports: String,
 
-    /// Ping Scan - host discovery
+    /// Host discovery by using ping scan
     #[arg(long, action(ArgAction::SetTrue), default_value_t = false)]
-    pingscan: bool,
+    host_discovery_ping: bool,
 
-    /// Mac Scan - host discovery
+    /// Host discovery by using arp scan or ndp_ns scan
     #[arg(long, action(ArgAction::SetTrue), default_value_t = false)]
-    macscan: bool,
+    host_discovery_mac: bool,
 
     /// Timeout
     #[arg(long, default_value_t = 1.0)]
@@ -377,9 +377,9 @@ fn main() {
         panic!("unable to parse the target");
     }
 
-    if args.pingscan {
+    if args.host_discovery_ping {
         host_discovery_ping_scan(&targets, args.timeout);
-    } else if args.macscan {
+    } else if args.host_discovery_mac {
         host_discovery_mac_scan(&targets, args.timeout);
     }
 }
