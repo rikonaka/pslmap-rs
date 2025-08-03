@@ -1,7 +1,7 @@
 use chrono::DateTime;
 use chrono::Local;
-use clap::ArgAction;
 use clap::Parser;
+use clap::Subcommand;
 use pistol::PistolLogger;
 use pistol::PistolRunner;
 use pistol::Target;
@@ -10,17 +10,28 @@ use pistol::mac_scan;
 use pistol::ping::PingStatus;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
-use std::net::Ipv4Addr;
-use std::net::Ipv6Addr;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
+
+mod target;
+
+use target::TargetParser;
+
+#[derive(Subcommand, Debug)]
+enum MethodCommand {
+    /// Perform host discovery
+    HD {
+        /// Host discovery by using ping scan
+        #[arg(long, action, default_value_t = false)]
+        ping: bool,
+        /// Host discovery by using arp scan or ndp_ns scan
+        #[arg(long, action, default_value_t = false)]
+        mac: bool,
+    },
+}
 
 /// Nmap rust version.
 #[derive(Parser, Debug)]
@@ -38,178 +49,19 @@ struct Args {
     #[arg(short, long, default_value = "")]
     ports: String,
 
-    /// Host discovery by using ping scan
-    #[arg(long, action(ArgAction::SetTrue), default_value_t = false)]
-    host_discovery_ping: bool,
-
-    /// Host discovery by using arp scan or ndp_ns scan
-    #[arg(long, action(ArgAction::SetTrue), default_value_t = false)]
-    host_discovery_mac: bool,
+    #[command(subcommand)]
+    method: MethodCommand,
 
     /// Timeout
     #[arg(long, default_value_t = 1.0)]
     timeout: f64,
 
     /// Set the IPv6 address to have the highest priority (this means that when the target is a domain name, the program will first use the IPv6 address as the target address)
-    #[arg(long, action(ArgAction::SetTrue), default_value_t = false)]
+    #[arg(long, action, default_value_t = false)]
     ipv6: bool,
-
-    /// The udp listen port
-    #[arg(short, long, default_value = "")]
-    udp: String,
-
-    /// When receiving data, return the data set in this parameter
-    #[arg(short, long, default_value = "null", default_missing_value = "", num_args(0..2))]
-    need_return: String,
 }
 
 static IPV6_FIRST: LazyLock<Arc<Mutex<bool>>> = LazyLock::new(|| Arc::new(Mutex::new(false)));
-
-static IPV4_IEGAL_CHARS: LazyLock<Arc<Vec<char>>> = LazyLock::new(|| {
-    let mut ipv4_legal_chars = Vec::new();
-    for c in '0'..='9' {
-        ipv4_legal_chars.push(c);
-    }
-    ipv4_legal_chars.push('.');
-    // 192.168.1.1/24
-    ipv4_legal_chars.push('/');
-    Arc::new(ipv4_legal_chars)
-});
-
-static IPV6_IEGAL_CHARS: LazyLock<Arc<Vec<char>>> = LazyLock::new(|| {
-    let mut ipv6_legal_chars = Vec::new();
-    for c in '0'..='f' {
-        ipv6_legal_chars.push(c);
-    }
-    ipv6_legal_chars.push(':');
-    ipv6_legal_chars.push('/');
-    Arc::new(ipv6_legal_chars)
-});
-
-fn ports_parser(ports: &str) -> Option<Vec<u16>> {
-    // 80,81,443-999
-    if ports.trim().len() == 0 {
-        return None;
-    }
-
-    let mut ret = Vec::new();
-    let ports_split: Vec<&str> = ports
-        .split(",")
-        .filter(|x| x.trim().len() == 0)
-        .map(|x| x.trim())
-        .collect();
-    for ps in ports_split {
-        if ps.contains("-") {
-            let range_split: Vec<&str> = ps
-                .split("-")
-                .filter(|x| x.trim().len() == 0)
-                .map(|x| x.trim())
-                .collect();
-            if range_split.len() == 2 {
-                let start: u16 = range_split[0]
-                    .parse()
-                    .expect(&format!("convert {} to u16 failed", range_split[0]));
-                let end: u16 = range_split[1]
-                    .parse()
-                    .expect(&format!("convert {} to u16 failed", range_split[1]));
-                if start < end {
-                    for p in start..=end {
-                        ret.push(p);
-                    }
-                } else {
-                    panic!("{}(start) >= {}(end)", start, end);
-                }
-            }
-        } else {
-            let p: u16 = ps.parse().expect(&format!("convert {} to u16 failed", ps));
-            ret.push(p);
-        }
-    }
-    Some(ret)
-}
-
-fn target_parser(target_addr: &str, target_ports: &str) -> Vec<Target> {
-    let mut is_ipv4 = true;
-    let mut is_ipv6 = true;
-    let mut is_subnet = false;
-
-    for c in target_addr.chars() {
-        if !IPV4_IEGAL_CHARS.contains(&c) {
-            is_ipv4 = false;
-        }
-        if !IPV6_IEGAL_CHARS.contains(&c) {
-            is_ipv6 = false;
-        }
-        if c == '/' {
-            is_subnet = true;
-        }
-    }
-
-    let ports = ports_parser(target_ports);
-
-    if is_ipv4 && !is_ipv6 {
-        if is_subnet {
-            let targets = Target::from_subnet(target_addr, ports).expect(&format!(
-                "can not convert subnet {} to targets",
-                target_addr
-            ));
-            targets
-        } else {
-            let ip = Ipv4Addr::from_str(target_addr).expect(&format!(
-                "can not convert target {} to Ipv4Addr",
-                target_addr
-            ));
-            let target = Target::new(ip.into(), ports);
-            vec![target]
-        }
-    } else if !is_ipv4 && is_ipv6 {
-        if is_subnet {
-            let targets = Target::from_subnet(target_addr, ports).expect(&format!(
-                "can not convert subnet {} to targets",
-                target_addr
-            ));
-            targets
-        } else {
-            let ip = Ipv6Addr::from_str(target_addr).expect(&format!(
-                "can not convert target {} to Ipv6Addr",
-                target_addr
-            ));
-            let target = Target::new(ip.into(), ports);
-            vec![target]
-        }
-    } else {
-        // parser as domain name
-        let ipv6_first = IPV6_FIRST.lock().expect("try lock IPV6_FIRST failed");
-        let targets = if *ipv6_first {
-            Target::from_domain6(target_addr, ports)
-                .expect(&format!("convert domain {} to target failed", target_addr))
-        } else {
-            Target::from_domain(target_addr, ports)
-                .expect(&format!("convert domain {} to target failed", target_addr))
-        };
-        targets
-    }
-}
-
-fn target_from_file(filename: &str, target_ports: &str) -> Vec<Target> {
-    let fp = File::open(filename).expect(&format!("can not open file [{}]", filename));
-    let reader = BufReader::new(fp);
-
-    let mut ret = Vec::new();
-    for line in reader.lines() {
-        let line = line.expect("can not read line");
-        // ignore the port here
-        let targets = target_parser(&line, target_ports);
-        ret.extend(targets);
-    }
-    ret
-}
-
-fn target_from_input(target_addr: &str, target_ports: &str) -> Vec<Target> {
-    target_parser(target_addr, target_ports)
-}
-
-static REPO_LINK: &str = "https://github.com/rikonaka/pslmap-rs";
 
 struct InfoShow;
 
@@ -218,11 +70,8 @@ impl InfoShow {
         let app = env!("CARGO_PKG_NAME");
         let version = env!("CARGO_PKG_VERSION");
         let now: DateTime<Local> = Local::now();
-        let formatted_time = now.format("%Y-%m-%d %H:%M %Z").to_string();
-        println!(
-            "Starting {} {} ({}) at {}",
-            app, version, REPO_LINK, formatted_time,
-        );
+        let formatted_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
+        println!("starting {} {} at {}", app, version, formatted_time,);
         println!("{}", info);
         println!("{}", tail);
     }
@@ -299,7 +148,7 @@ fn host_discovery_ping_scan(targets: &[Target], timeout: f64) {
 
     let info = info.join("\n");
     let tail = format!(
-        "Nmap done: {} IP addresses ({} hosts up) scanned in {:.2} seconds",
+        "pslmap done: {} IP addresses ({} hosts up) scanned in {:.2} seconds",
         targets.len(),
         hosts_up,
         start.elapsed().as_secs_f64()
@@ -346,7 +195,7 @@ fn host_discovery_mac_scan(targets: &[Target], timeout: f64) {
 
     let info = info.join("\n");
     let tail = format!(
-        "Nmap done: {} IP addresses ({} hosts up) scanned in {:.2} seconds",
+        "pslmap done: {} IP addresses ({} hosts up) scanned in {:.2} seconds",
         targets.len(),
         hosts_up,
         start.elapsed().as_secs_f64()
@@ -363,11 +212,14 @@ fn main() {
         (*ipv6_first) = true;
     }
 
-    if args.target.len() > 0 {
-        let t = target_from_input(&args.target, &args.ports);
+    let ports = args.ports;
+    let target = args.target;
+    let filename = args.filename;
+    if target.len() > 0 {
+        let t = TargetParser::target_from_input(&target, &ports);
         targets.extend(t);
-    } else if args.filename.len() > 0 {
-        let t = target_from_file(&args.filename, &args.ports);
+    } else if filename.len() > 0 {
+        let t = TargetParser::target_from_file(&filename, &ports);
         targets.extend(t);
     } else {
         panic!("please set target first");
@@ -377,9 +229,15 @@ fn main() {
         panic!("unable to parse the target");
     }
 
-    if args.host_discovery_ping {
-        host_discovery_ping_scan(&targets, args.timeout);
-    } else if args.host_discovery_mac {
-        host_discovery_mac_scan(&targets, args.timeout);
+    let timeout = args.timeout;
+
+    match args.method {
+        MethodCommand::HD { ping, mac } => {
+            if ping {
+                host_discovery_ping_scan(&targets, timeout);
+            } else if mac {
+                host_discovery_mac_scan(&targets, timeout);
+            }
+        }
     }
 }
