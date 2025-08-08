@@ -7,3 +7,4 @@ edition = "2024"
 chrono = "^0"
 clap = { version="^4", features=["derive"] }
 pistol = "^4"
+subnetwork = "^0"

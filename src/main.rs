@@ -5,7 +5,7 @@ use clap::Subcommand;
 use pistol::PistolLogger;
 use pistol::PistolRunner;
 use pistol::Target;
-use pistol::icmp_ping;
+use pistol::icmp_echo_ping;
 use pistol::mac_scan;
 use pistol::ping::PingStatus;
 use std::collections::BTreeMap;
@@ -21,7 +21,7 @@ mod target;
 use target::TargetParser;
 
 #[derive(Subcommand, Debug)]
-enum MethodCommand {
+enum Tools {
     /// Perform host discovery
     HD {
         /// Host discovery by using ping scan
@@ -50,15 +50,19 @@ struct Args {
     ports: String,
 
     #[command(subcommand)]
-    method: MethodCommand,
+    tools: Tools,
 
     /// Timeout
     #[arg(long, default_value_t = 1.0)]
     timeout: f64,
 
-    /// Set the IPv6 address to have the highest priority (this means that when the target is a domain name, the program will first use the IPv6 address as the target address)
-    #[arg(long, action, default_value_t = false)]
+    /// Set the IPv6 address to have the highest priority (this means that when the target is a domain name, the program will first use the IPv6 address as the target address, it does not affect the scanning of using the IP address)
+    #[arg(short = '6', long, action, default_value_t = false)]
     ipv6: bool,
+
+    /// Set the IPv4 address to have the highest priority
+    #[arg(short = '4', long, action, default_value_t = false)]
+    ipv4: bool,
 }
 
 static IPV6_FIRST: LazyLock<Arc<Mutex<bool>>> = LazyLock::new(|| Arc::new(Mutex::new(false)));
@@ -100,7 +104,7 @@ impl fmt::Display for HostDiscoveryStatus {
 }
 
 /// Same as the ping command in the system.
-fn host_discovery_ping_scan(targets: &[Target], timeout: f64) {
+fn host_discovery_echo_ping_scan(targets: &[Target], timeout: f64) {
     let start = Instant::now();
 
     let _pr =
@@ -111,7 +115,7 @@ fn host_discovery_ping_scan(targets: &[Target], timeout: f64) {
     let src_port = None;
     let max_attempts = 2;
     let timeout = Some(Duration::from_secs_f64(timeout));
-    let ret = icmp_ping(
+    let ret = icmp_echo_ping(
         &targets,
         num_threads,
         src_addr,
@@ -148,7 +152,7 @@ fn host_discovery_ping_scan(targets: &[Target], timeout: f64) {
 
     let info = info.join("\n");
     let tail = format!(
-        "pslmap done: {} IP addresses ({} hosts up) scanned in {:.2} seconds",
+        "pslmap done: {} ip addresses ({} hosts up) scanned in {:.2} seconds",
         targets.len(),
         hosts_up,
         start.elapsed().as_secs_f64()
@@ -195,7 +199,7 @@ fn host_discovery_mac_scan(targets: &[Target], timeout: f64) {
 
     let info = info.join("\n");
     let tail = format!(
-        "pslmap done: {} IP addresses ({} hosts up) scanned in {:.2} seconds",
+        "pslmap done: {} ip addresses ({} hosts up) scanned in {:.2} seconds",
         targets.len(),
         hosts_up,
         start.elapsed().as_secs_f64()
@@ -210,6 +214,9 @@ fn main() {
     if args.ipv6 {
         let mut ipv6_first = IPV6_FIRST.lock().expect("try lock IPV6_FIRST failed");
         (*ipv6_first) = true;
+    } else if args.ipv4 {
+        let mut ipv6_first = IPV6_FIRST.lock().expect("try lock IPV6_FIRST failed");
+        (*ipv6_first) = false;
     }
 
     let ports = args.ports;
@@ -231,10 +238,10 @@ fn main() {
 
     let timeout = args.timeout;
 
-    match args.method {
-        MethodCommand::HD { ping, mac } => {
+    match args.tools {
+        Tools::HD { ping, mac } => {
             if ping {
-                host_discovery_ping_scan(&targets, timeout);
+                host_discovery_echo_ping_scan(&targets, timeout);
             } else if mac {
                 host_discovery_mac_scan(&targets, timeout);
             }
