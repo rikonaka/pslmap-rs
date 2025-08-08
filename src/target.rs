@@ -28,55 +28,59 @@ fn get_all_tlds() -> Vec<String> {
 pub struct TargetParser;
 
 impl TargetParser {
-    fn ports_parser(ports: &str) -> Vec<u16> {
+    fn ports_parser(ports: Option<String>) -> Vec<u16> {
         // 80,81,443-999
-        if ports.trim().len() == 0 {
-            return Vec::new();
-        }
-
-        let mut ret = Vec::new();
-        let mut ports_split = Vec::new();
-        if ports.contains(",") {
-            let split_ret: Vec<String> = ports
-                .split(",")
-                .filter(|x| x.trim().len() > 0)
-                .map(|x| x.trim().to_string())
-                .collect();
-            ports_split.extend(split_ret);
-        } else {
-            ports_split.push(ports.to_string());
-        }
-
-        for ps in ports_split {
-            if ps.contains("-") {
-                let range_split: Vec<&str> = ps
-                    .split("-")
-                    .filter(|x| x.trim().len() > 0)
-                    .map(|x| x.trim())
-                    .collect();
-                if range_split.len() == 2 {
-                    let start: u16 = range_split[0]
-                        .parse()
-                        .expect(&format!("convert {} to u16 failed", range_split[0]));
-                    let end: u16 = range_split[1]
-                        .parse()
-                        .expect(&format!("convert {} to u16 failed", range_split[1]));
-                    if start < end {
-                        for p in start..=end {
-                            ret.push(p);
-                        }
-                    } else {
-                        panic!("{}(start) >= {}(end)", start, end);
-                    }
-                }
-            } else {
-                let p: u16 = ps.parse().expect(&format!("convert {} to u16 failed", ps));
-                ret.push(p);
+        if let Some(ports) = ports {
+            if ports.trim().len() == 0 {
+                return Vec::new();
             }
+
+            let mut ret = Vec::new();
+            let mut ports_split = Vec::new();
+            if ports.contains(",") {
+                let split_ret: Vec<String> = ports
+                    .split(",")
+                    .filter(|x| x.trim().len() > 0)
+                    .map(|x| x.trim().to_string())
+                    .collect();
+                ports_split.extend(split_ret);
+            } else {
+                ports_split.push(ports.to_string());
+            }
+
+            for ps in ports_split {
+                if ps.contains("-") {
+                    let range_split: Vec<&str> = ps
+                        .split("-")
+                        .filter(|x| x.trim().len() > 0)
+                        .map(|x| x.trim())
+                        .collect();
+                    if range_split.len() == 2 {
+                        let start: u16 = range_split[0]
+                            .parse()
+                            .expect(&format!("convert {} to u16 failed", range_split[0]));
+                        let end: u16 = range_split[1]
+                            .parse()
+                            .expect(&format!("convert {} to u16 failed", range_split[1]));
+                        if start < end {
+                            for p in start..=end {
+                                ret.push(p);
+                            }
+                        } else {
+                            panic!("{}(start) >= {}(end)", start, end);
+                        }
+                    }
+                } else {
+                    let p: u16 = ps.parse().expect(&format!("convert {} to u16 failed", ps));
+                    ret.push(p);
+                }
+            }
+            ret
+        } else {
+            Vec::new()
         }
-        ret
     }
-    fn parser(addrs: &str, ports: &str) -> Vec<Target> {
+    fn parser(addrs: &str, ports: Option<String>) -> Vec<Target> {
         if addrs.trim().len() == 0 {
             return Vec::new();
         }
@@ -216,7 +220,7 @@ impl TargetParser {
         }
         targets
     }
-    pub fn target_from_file(filename: &str, target_ports: &str) -> Vec<Target> {
+    pub fn target_from_file(filename: &str, target_ports: Option<String>) -> Vec<Target> {
         let fp = File::open(filename).expect(&format!("can not open file [{}]", filename));
         let reader = BufReader::new(fp);
 
@@ -224,12 +228,12 @@ impl TargetParser {
         for line in reader.lines() {
             let line = line.expect("can not read line");
             // ignore the port here
-            let t = TargetParser::parser(&line, target_ports);
+            let t = TargetParser::parser(&line, target_ports.clone());
             targets.extend(t);
         }
         targets
     }
-    pub fn target_from_input(target_addr: &str, target_ports: &str) -> Vec<Target> {
+    pub fn target_from_input(target_addr: &str, target_ports: Option<String>) -> Vec<Target> {
         TargetParser::parser(target_addr, target_ports)
     }
 }
@@ -244,7 +248,7 @@ mod tests {
 
         for t in &test_targets {
             for p in &test_ports {
-                let ret = TargetParser::target_from_input(t, p);
+                let ret = TargetParser::target_from_input(t, Some(p.to_string()));
                 println!("{:?}", ret);
                 println!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
             }

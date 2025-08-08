@@ -38,16 +38,16 @@ enum Tools {
 #[command(author = "RikoNaka", version, about, long_about = None)]
 struct Args {
     /// Input target
-    #[arg(short, long, default_value = "")]
-    target: String,
+    #[arg(short, long)]
+    target: Option<String>,
 
     /// Input from list of hosts/networks (same as nmap -iL option)
-    #[arg(short, long, default_value = "")]
-    filename: String,
+    #[arg(short, long)]
+    filename: Option<String>,
 
     /// Specified ports
-    #[arg(short, long, default_value = "")]
-    ports: String,
+    #[arg(short, long)]
+    ports: Option<String>,
 
     #[command(subcommand)]
     tools: Tools,
@@ -60,7 +60,7 @@ struct Args {
     #[arg(short = '6', long, action, default_value_t = false)]
     ipv6: bool,
 
-    /// Set the IPv4 address to have the highest priority
+    /// Set the IPv4 address to have the highest priority (same as above)
     #[arg(short = '4', long, action, default_value_t = false)]
     ipv4: bool,
 }
@@ -222,11 +222,11 @@ fn main() {
     let ports = args.ports;
     let target = args.target;
     let filename = args.filename;
-    if target.len() > 0 {
-        let t = TargetParser::target_from_input(&target, &ports);
+    if let Some(target) = target {
+        let t = TargetParser::target_from_input(&target, ports);
         targets.extend(t);
-    } else if filename.len() > 0 {
-        let t = TargetParser::target_from_file(&filename, &ports);
+    } else if let Some(filename) = filename {
+        let t = TargetParser::target_from_file(&filename, ports);
         targets.extend(t);
     } else {
         panic!("please set target first");
