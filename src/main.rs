@@ -3,33 +3,49 @@ use chrono::Local;
 use clap::Parser;
 use clap::Subcommand;
 use pistol::PistolLogger;
-use pistol::PistolRunner;
-use pistol::Target;
-use pistol::icmp_echo_ping;
-use pistol::mac_scan;
-use pistol::ping::PingStatus;
-use std::collections::BTreeMap;
-use std::fmt;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
-use std::time::Duration;
-use std::time::Instant;
 
-mod target;
+mod hd;
+mod ps;
+mod tp;
 
-use target::TargetParser;
+use hd::HostDiscoveryMethod;
+use hd::host_discovery;
+use tp::TargetParser;
 
 #[derive(Subcommand, Debug)]
 enum Tools {
     /// Perform host discovery
     HD {
-        /// Host discovery by using ping scan
+        /// Perform host discovery using Echo Ping (same as the ping command).
         #[arg(long, action, default_value_t = false)]
-        ping: bool,
-        /// Host discovery by using arp scan or ndp_ns scan
+        ping1: bool,
+        /// Perform host discovery using Timestamp Ping (useful when the target's firewall blocks icmp packets).
+        #[arg(long, action, default_value_t = false)]
+        ping2: bool,
+        /// Perform host discovery using Address Mask Ping (useful when the target's firewall blocks icmp packets).
+        #[arg(long, action, default_value_t = false)]
+        ping3: bool,
+        /// Perform host discovery using TCP SYN Ping (default target port is 80).
+        #[arg(long, action, default_value_t = false)]
+        syn: bool,
+        /// Perform host discovery using TCP ACK Ping (default target port is 80).
+        #[arg(long, action, default_value_t = false)]
+        ack: bool,
+        /// Perform host discovery using UDP Ping (default target port is 125).
+        #[arg(long, action, default_value_t = false)]
+        udp: bool,
+        /// Perform host discovery using ARP (IPv4) or NDP_NS (IPv6) (this works well when the target machine are on the same subnet).
         #[arg(long, action, default_value_t = false)]
         mac: bool,
+    },
+    /// Perform port scanning
+    PS {
+        /// Perform port scanning using TCP SYN scan.
+        #[arg(long, action, default_value_t = false)]
+        syn: bool,
     },
 }
 
@@ -56,6 +72,10 @@ struct Args {
     #[arg(long, default_value_t = 1.0)]
     timeout: f64,
 
+    /// Display log level (debug, warn, info and none)
+    #[arg(short, long, default_value = "none")]
+    log: String,
+
     /// Set the IPv6 address to have the highest priority (this means that when the target is a domain name, the program will first use the IPv6 address as the target address, it does not affect the scanning of using the IP address)
     #[arg(short = '6', long, action, default_value_t = false)]
     ipv6: bool,
@@ -81,130 +101,15 @@ impl InfoShow {
     }
 }
 
-/// Nmap Doc (https://nmap.org/book/man-host-discovery.html):
-/// The default host discovery done with -sn consists of an ICMP echo request,
-/// TCP SYN to port 443, TCP ACK to port 80, and an ICMP timestamp request by default.
-/// When executed by an unprivileged user, only SYN packets are sent (using a connect call) to ports 80 and 443
-/// on the target. When a privileged user tries to scan targets on a local ethernet network,
-/// ARP requests are used unless --send-ip was specified.
-#[derive(Debug, Clone, Copy)]
-enum HostDiscoveryStatus {
-    Up,
-    Down,
-}
-
-impl fmt::Display for HostDiscoveryStatus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s = match self {
-            HostDiscoveryStatus::Up => "up",
-            HostDiscoveryStatus::Down => "down",
-        };
-        write!(f, "{}", s)
+fn log_level_parser(log: &str) -> PistolLogger {
+    let log = log.to_lowercase();
+    match log.as_str() {
+        "none" => PistolLogger::None,
+        "debug" => PistolLogger::Debug,
+        "warn" => PistolLogger::Warn,
+        "info" => PistolLogger::Info,
+        _ => PistolLogger::None,
     }
-}
-
-/// Same as the ping command in the system.
-fn host_discovery_echo_ping_scan(targets: &[Target], timeout: f64) {
-    let start = Instant::now();
-
-    let _pr =
-        PistolRunner::init(PistolLogger::None, None, None).expect("init pistol runner failed");
-
-    let num_threads = None;
-    let src_addr = None;
-    let src_port = None;
-    let max_attempts = 2;
-    let timeout = Some(Duration::from_secs_f64(timeout));
-    let ret = icmp_echo_ping(
-        &targets,
-        num_threads,
-        src_addr,
-        src_port,
-        timeout,
-        max_attempts,
-    )
-    .expect("icmp ping failed");
-
-    // sorted
-    let mut btm = BTreeMap::new();
-    for ping in ret.ping_reports {
-        btm.insert(ping.addr, ping.clone());
-    }
-
-    let mut hosts_up = 0;
-    let mut info = Vec::new();
-    for (addr, ping) in btm {
-        let new_status = match ping.status {
-            PingStatus::Up => {
-                hosts_up += 1;
-                HostDiscoveryStatus::Up
-            }
-            _ => HostDiscoveryStatus::Down,
-        };
-        let line = format!(
-            "{} -> {} ({:.2}s)",
-            addr,
-            new_status,
-            ping.cost.as_secs_f64()
-        );
-        info.push(line);
-    }
-
-    let info = info.join("\n");
-    let tail = format!(
-        "pslmap done: {} ip addresses ({} hosts up) scanned in {:.2} seconds",
-        targets.len(),
-        hosts_up,
-        start.elapsed().as_secs_f64()
-    );
-    InfoShow::print(&info, &tail);
-}
-
-/// When the target address is local, you can use arp scan or ndp ns scan.
-fn host_discovery_mac_scan(targets: &[Target], timeout: f64) {
-    let start = Instant::now();
-
-    let _pr =
-        PistolRunner::init(PistolLogger::None, None, None).expect("init pistol runner failed");
-
-    let num_threads = None;
-    let src_addr = None;
-    let max_attempts = 2;
-    let timeout = Some(Duration::from_secs_f64(timeout));
-    let ret = mac_scan(&targets, num_threads, src_addr, timeout, max_attempts).expect("mac failed");
-
-    // sorted
-    let mut all_ips = Vec::new();
-    for target in targets {
-        all_ips.push(target.addr);
-    }
-    let mut btm = BTreeMap::new();
-    for mr in ret.mac_reports {
-        btm.insert(mr.addr, mr.clone());
-    }
-
-    let mut hosts_up = 0;
-    let mut info = Vec::new();
-    for (addr, mr) in btm {
-        let new_status = match mr.mac {
-            Some(mac) => {
-                hosts_up += 1;
-                format!("{}({})", HostDiscoveryStatus::Up, mac)
-            }
-            _ => format!("{}", HostDiscoveryStatus::Down),
-        };
-        let line = format!("{} -> {}", addr, new_status);
-        info.push(line);
-    }
-
-    let info = info.join("\n");
-    let tail = format!(
-        "pslmap done: {} ip addresses ({} hosts up) scanned in {:.2} seconds",
-        targets.len(),
-        hosts_up,
-        start.elapsed().as_secs_f64()
-    );
-    InfoShow::print(&info, &tail);
 }
 
 fn main() {
@@ -237,14 +142,37 @@ fn main() {
     }
 
     let timeout = args.timeout;
+    let log_level = log_level_parser(&args.log);
 
     match args.tools {
-        Tools::HD { ping, mac } => {
-            if ping {
-                host_discovery_echo_ping_scan(&targets, timeout);
+        Tools::HD {
+            ping1,
+            ping2,
+            ping3,
+            mac,
+            syn,
+            ack,
+            udp,
+        } => {
+            let hd_method = if ping1 {
+                HostDiscoveryMethod::IcmpEcho
+            } else if ping2 {
+                HostDiscoveryMethod::IcmpTimestamp
+            } else if ping3 {
+                HostDiscoveryMethod::IcmpAddressMask
+            } else if syn {
+                HostDiscoveryMethod::TcpSyn
+            } else if ack {
+                HostDiscoveryMethod::TcpAck
+            } else if udp {
+                HostDiscoveryMethod::Udp
             } else if mac {
-                host_discovery_mac_scan(&targets, timeout);
-            }
+                HostDiscoveryMethod::Mac
+            } else {
+                HostDiscoveryMethod::Mac
+            };
+            host_discovery(&targets, hd_method, log_level, timeout);
         }
+        Tools::PS { syn } => todo!(),
     }
 }

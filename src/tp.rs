@@ -1,3 +1,4 @@
+/// target parser
 use pistol::Target;
 use pistol::dns_query;
 use std::fs::File;
