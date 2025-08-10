@@ -3,6 +3,7 @@ use chrono::Local;
 use clap::Parser;
 use clap::Subcommand;
 use pistol::PistolLogger;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
@@ -13,39 +14,80 @@ mod tp;
 
 use hd::HostDiscoveryMethod;
 use hd::host_discovery;
+use ps::PortScanningMethod;
+use ps::port_scanning;
 use tp::TargetParser;
 
 #[derive(Subcommand, Debug)]
-enum Tools {
+enum ToolsSubcommand {
     /// Perform host discovery
     HD {
-        /// Perform host discovery using Echo Ping (same as the ping command).
-        #[arg(long, action, default_value_t = false)]
+        /// Perform host discovery using ICMP Echo Ping (same as the ping command).
+        #[arg(short = '1', long = "p1", action, default_value_t = false)]
         ping1: bool,
-        /// Perform host discovery using Timestamp Ping (useful when the target's firewall blocks icmp packets).
-        #[arg(long, action, default_value_t = false)]
+        /// Perform host discovery using ICMP Timestamp Ping (useful when the target's firewall blocks icmp packets).
+        #[arg(short = '2', long = "p2", action, default_value_t = false)]
         ping2: bool,
-        /// Perform host discovery using Address Mask Ping (useful when the target's firewall blocks icmp packets).
-        #[arg(long, action, default_value_t = false)]
+        /// Perform host discovery using ICMP Address Mask Ping (useful when the target's firewall blocks icmp packets).
+        #[arg(short = '3', long = "p3", action, default_value_t = false)]
         ping3: bool,
         /// Perform host discovery using TCP SYN Ping (default target port is 80).
-        #[arg(long, action, default_value_t = false)]
+        #[arg(short, long, action, default_value_t = false)]
         syn: bool,
         /// Perform host discovery using TCP ACK Ping (default target port is 80).
-        #[arg(long, action, default_value_t = false)]
+        #[arg(short, long, action, default_value_t = false)]
         ack: bool,
         /// Perform host discovery using UDP Ping (default target port is 125).
-        #[arg(long, action, default_value_t = false)]
+        #[arg(short, long, action, default_value_t = false)]
         udp: bool,
         /// Perform host discovery using ARP (IPv4) or NDP_NS (IPv6) (this works well when the target machine are on the same subnet).
-        #[arg(long, action, default_value_t = false)]
+        #[arg(short, long, action, default_value_t = false)]
         mac: bool,
     },
     /// Perform port scanning
     PS {
         /// Perform port scanning using TCP SYN scan.
-        #[arg(long, action, default_value_t = false)]
+        #[arg(short, long, action, default_value_t = false)]
         syn: bool,
+        /// Perform port scanning using TCP Connect scan.
+        #[arg(short, long, action, default_value_t = false)]
+        connect: bool,
+        /// Perform port scanning using TCP FIN scan.
+        #[arg(short, long, action, default_value_t = false)]
+        fin: bool,
+        /// Perform port scanning using TCP Null scan.
+        #[arg(short, long, action, default_value_t = false)]
+        null: bool,
+        /// Perform port scanning using TCP Xmas scan.
+        #[arg(short, long, action, default_value_t = false)]
+        xmas: bool,
+        /// Perform port scanning using TCP ACK scan.
+        #[arg(short, long, action, default_value_t = false)]
+        ack: bool,
+        /// Perform port scanning using TCP Window scan.
+        #[arg(short, long, action, default_value_t = false)]
+        window: bool,
+        /// Perform port scanning using TCP Maimon scan.
+        #[arg(short, long, action, default_value_t = false)]
+        maimon: bool,
+        /// Perform port scanning using UDP scan.
+        #[arg(short, long, action, default_value_t = false)]
+        udp: bool,
+        /// Perform port scanning using TCP Idle scan.
+        #[command(subcommand)]
+        idle: Option<IdleSubcommand>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum IdleSubcommand {
+    IDLE {
+        /// TCP Idle scan zommbie IPv4 address.
+        #[arg(short, long)]
+        zombie_ipv4: Ipv4Addr,
+        /// TCP Idle scan zommbie IPv4 port.
+        #[arg(short, long)]
+        zombie_port: u16,
     },
 }
 
@@ -66,7 +108,7 @@ struct Args {
     ports: Option<String>,
 
     #[command(subcommand)]
-    tools: Tools,
+    tools: ToolsSubcommand,
 
     /// Timeout
     #[arg(long, default_value_t = 1.0)]
@@ -145,7 +187,7 @@ fn main() {
     let log_level = log_level_parser(&args.log);
 
     match args.tools {
-        Tools::HD {
+        ToolsSubcommand::HD {
             ping1,
             ping2,
             ping3,
@@ -173,6 +215,58 @@ fn main() {
             };
             host_discovery(&targets, hd_method, log_level, timeout);
         }
-        Tools::PS { syn } => todo!(),
+        ToolsSubcommand::PS {
+            syn,
+            connect,
+            fin,
+            null,
+            xmas,
+            ack,
+            window,
+            maimon,
+            udp,
+            idle,
+        } => {
+            let (ps_method, zombie_ipv4, zombie_port) = if syn {
+                (PortScanningMethod::TcpSyn, None, None)
+            } else if connect {
+                (PortScanningMethod::TcpConnect, None, None)
+            } else if fin {
+                (PortScanningMethod::TcpFin, None, None)
+            } else if null {
+                (PortScanningMethod::TcpNull, None, None)
+            } else if xmas {
+                (PortScanningMethod::TcpXmas, None, None)
+            } else if ack {
+                (PortScanningMethod::TcpAck, None, None)
+            } else if window {
+                (PortScanningMethod::TcpWindow, None, None)
+            } else if maimon {
+                (PortScanningMethod::TcpMaimon, None, None)
+            } else if let Some(idle) = idle {
+                match idle {
+                    IdleSubcommand::IDLE {
+                        zombie_ipv4,
+                        zombie_port,
+                    } => (
+                        PortScanningMethod::TcpIdle,
+                        Some(zombie_ipv4),
+                        Some(zombie_port),
+                    ),
+                }
+            } else if udp {
+                (PortScanningMethod::Udp, None, None)
+            } else {
+                (PortScanningMethod::TcpSyn, None, None)
+            };
+            port_scanning(
+                &targets,
+                ps_method,
+                zombie_ipv4,
+                zombie_port,
+                log_level,
+                timeout,
+            );
+        }
     }
 }
