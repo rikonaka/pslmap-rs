@@ -9,7 +9,9 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 
 mod hd;
+mod od;
 mod ps;
+mod sd;
 mod tp;
 
 use hd::HostDiscoveryMethod;
