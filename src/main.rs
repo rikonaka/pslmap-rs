@@ -16,13 +16,14 @@ mod tp;
 
 use hd::HostDiscoveryMethod;
 use hd::host_discovery;
+use od::os_detection;
 use ps::PortScanningMethod;
 use ps::port_scanning;
 use tp::TargetParser;
 
 #[derive(Subcommand, Debug)]
 enum ToolsSubcommand {
-    /// Perform host discovery
+    /// Perform host discovery.
     HD {
         /// Perform host discovery using ICMP Echo Ping (same as the ping command).
         #[arg(short = '1', long = "p1", action, default_value_t = false)]
@@ -46,7 +47,7 @@ enum ToolsSubcommand {
         #[arg(short, long, action, default_value_t = false)]
         mac: bool,
     },
-    /// Perform port scanning
+    /// Perform port scanning.
     PS {
         /// Perform port scanning using TCP SYN scan.
         #[arg(short, long, action, default_value_t = false)]
@@ -78,6 +79,21 @@ enum ToolsSubcommand {
         /// Perform port scanning using TCP Idle scan.
         #[command(subcommand)]
         idle: Option<IdleSubcommand>,
+    },
+    /// Perform remote os detection.
+    OD {
+        /// Return only the top_k results.
+        #[arg(short, long, default_value_t = 3)]
+        top_k: usize,
+        /// Set the open_tcp_port parameter.
+        #[arg(short = '1', long)]
+        open_tcp_port: u16,
+        /// Set the close_tcp_port parameter.
+        #[arg(short = '2', long)]
+        close_tcp_port: u16,
+        /// Set the close_udp_port parameter.
+        #[arg(short = '3', long)]
+        close_udp_port: u16,
     },
 }
 
@@ -269,6 +285,17 @@ fn main() {
                 log_level,
                 timeout,
             );
+        }
+        ToolsSubcommand::OD {
+            top_k,
+            open_tcp_port,
+            close_tcp_port,
+            close_udp_port,
+        } => {
+            for t in &mut targets {
+                t.ports = vec![open_tcp_port, close_tcp_port, close_udp_port];
+            }
+            os_detection(&targets, top_k, log_level, timeout)
         }
     }
 }
