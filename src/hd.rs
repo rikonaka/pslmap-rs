@@ -23,7 +23,7 @@ use crate::InfoShow;
 /// When executed by an unprivileged user, only SYN packets are sent (using a connect call) to ports 80 and 443
 /// on the target. When a privileged user tries to scan targets on a local ethernet network,
 /// ARP requests are used unless --send-ip was specified.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum HostDiscoveryStatus {
     Up,
     Down,
@@ -161,6 +161,7 @@ fn host_discovery_by_ping(
     }
 
     let mut hosts_up = 0;
+    let mut hosts_not_up = 0;
     let mut info = Vec::new();
     for (addr, ping) in btm {
         let new_status = match ping.status {
@@ -168,16 +169,28 @@ fn host_discovery_by_ping(
                 hosts_up += 1;
                 HostDiscoveryStatus::Up
             }
-            _ => HostDiscoveryStatus::Down,
+            _ => {
+                hosts_not_up += 1;
+                HostDiscoveryStatus::Down
+            }
         };
-        let line = format!(
-            "{} -> {} ({:.2}s)",
-            addr,
-            new_status,
-            ping.cost.as_secs_f64()
-        );
-        info.push(line);
+        if new_status == HostDiscoveryStatus::Up {
+            let line = format!(
+                "{} -> {} ({:.2}s)",
+                addr,
+                new_status,
+                ping.cost.as_secs_f64()
+            );
+            info.push(line);
+        }
     }
+
+    let line = format!(
+        "other {} hosts -> {}",
+        hosts_not_up,
+        HostDiscoveryStatus::Down
+    );
+    info.push(line);
 
     let info = info.join("\n");
     let tail = format!(
@@ -212,28 +225,32 @@ fn host_discovery_by_mac(targets: &[Target], log_level: PistolLogger, timeout: f
     }
 
     let mut hosts_up = 0;
+    let mut hosts_not_up = 0;
     let mut info = Vec::new();
     for (addr, mr) in btm {
-        let new_status = match mr.mac {
+        match mr.mac {
             Some(mac) => {
                 hosts_up += 1;
-                format!(
-                    "{} ({:.2}s) ({}) ({})",
+                let line = format!(
+                    "{} -> {} ({:.2}s) ({}) ({})",
+                    addr,
                     HostDiscoveryStatus::Up,
                     mr.rtt.as_secs_f64(),
                     mac,
                     mr.ouis,
-                )
+                );
+                info.push(line);
             }
-            _ => format!(
-                "{} ({:.2}s)",
-                HostDiscoveryStatus::Down,
-                mr.rtt.as_secs_f64(),
-            ),
+            _ => hosts_not_up += 1,
         };
-        let line = format!("{} -> {}", addr, new_status);
-        info.push(line);
     }
+
+    let line = format!(
+        "other {} hosts -> {}",
+        hosts_not_up,
+        HostDiscoveryStatus::Down
+    );
+    info.push(line);
 
     let info = info.join("\n");
     let tail = format!(

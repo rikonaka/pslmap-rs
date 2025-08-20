@@ -195,26 +195,29 @@ pub fn port_scanning(
     }
 
     let mut hosts_up = 0;
+    let mut hosts_not_up = 0;
     let mut info = Vec::new();
     for (addr, report) in btm {
         for (port, report) in report {
             match report.status {
                 PortStatus::Open => {
                     hosts_up += 1;
+                    let line = format!(
+                        "{}:{}/{} -> {} ({:.2}s)",
+                        addr,
+                        port,
+                        protocol,
+                        report.status,
+                        report.cost.as_secs_f64()
+                    );
+                    info.push(line);
                 }
-                _ => (),
+                _ => hosts_not_up += 1,
             }
-            let line = format!(
-                "{}:{}/{} -> {} ({:.2}s)",
-                addr,
-                port,
-                protocol,
-                report.status,
-                report.cost.as_secs_f64()
-            );
-            info.push(line);
         }
     }
+    let line = format!("other {} ports -> closed", hosts_not_up);
+    info.push(line);
 
     let info = info.join("\n");
     let tail = format!(
