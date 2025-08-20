@@ -1,9 +1,9 @@
+use pistol::os::OsDetect;
+use pistol::os_detect;
 /// remote os detection
 use pistol::PistolLogger;
 use pistol::PistolRunner;
 use pistol::Target;
-use pistol::os::OsDetect;
-use pistol::os_detect;
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::time::Duration;
