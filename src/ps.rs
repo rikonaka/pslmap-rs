@@ -216,8 +216,10 @@ pub fn port_scanning(
             }
         }
     }
-    let line = format!("other {} ports -> closed", hosts_not_up);
-    info.push(line);
+    if hosts_not_up > 0 {
+        let line = format!("other {} ports -> closed", hosts_not_up);
+        info.push(line);
+    }
 
     let info = info.join("\n");
     let tail = format!(

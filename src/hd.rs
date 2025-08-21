@@ -185,12 +185,14 @@ fn host_discovery_by_ping(
         }
     }
 
-    let line = format!(
-        "other {} hosts -> {}",
-        hosts_not_up,
-        HostDiscoveryStatus::Down
-    );
-    info.push(line);
+    if hosts_not_up > 0 {
+        let line = format!(
+            "other {} hosts -> {}",
+            hosts_not_up,
+            HostDiscoveryStatus::Down
+        );
+        info.push(line);
+    }
 
     let info = info.join("\n");
     let tail = format!(
@@ -245,12 +247,14 @@ fn host_discovery_by_mac(targets: &[Target], log_level: PistolLogger, timeout: f
         };
     }
 
-    let line = format!(
-        "other {} hosts -> {}",
-        hosts_not_up,
-        HostDiscoveryStatus::Down
-    );
-    info.push(line);
+    if hosts_not_up > 0 {
+        let line = format!(
+            "other {} hosts -> {}",
+            hosts_not_up,
+            HostDiscoveryStatus::Down
+        );
+        info.push(line);
+    }
 
     let info = info.join("\n");
     let tail = format!(

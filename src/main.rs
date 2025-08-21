@@ -129,7 +129,7 @@ struct Args {
     tools: ToolsSubcommand,
 
     /// Timeout
-    #[arg(long, default_value_t = 0.5)]
+    #[arg(long, default_value_t = 1.0)]
     timeout: f64,
 
     /// Display log level (debug, warn, info and none)
