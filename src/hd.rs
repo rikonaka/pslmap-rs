@@ -55,11 +55,11 @@ pub fn host_discovery(
     hd_method: HostDiscoveryMethod,
     log_level: PistolLogger,
     timeout: f64,
-    threads: usize,
+    num_threads: usize,
 ) {
     match hd_method {
-        HostDiscoveryMethod::Mac => host_discovery_by_mac(targets, log_level, timeout, threads),
-        _ => host_discovery_by_ping(targets, hd_method, log_level, timeout, threads),
+        HostDiscoveryMethod::Mac => host_discovery_by_mac(targets, log_level, timeout, num_threads),
+        _ => host_discovery_by_ping(targets, hd_method, log_level, timeout, num_threads),
     }
 }
 
@@ -68,13 +68,13 @@ fn host_discovery_by_ping(
     hd_method: HostDiscoveryMethod,
     log_level: PistolLogger,
     timeout: f64,
-    threads: usize,
+    num_threads: usize,
 ) {
     let start = Instant::now();
 
     let _pr = PistolRunner::init(log_level, None, None).expect("init pistol runner failed");
 
-    let num_threads = Some(threads);
+    let num_threads = Some(num_threads);
     let src_addr = None;
     let src_port = None;
     let max_attempts = 2;
@@ -210,13 +210,13 @@ fn host_discovery_by_mac(
     targets: &[Target],
     log_level: PistolLogger,
     timeout: f64,
-    threads: usize,
+    num_threads: usize,
 ) {
     let start = Instant::now();
 
     let _pr = PistolRunner::init(log_level, None, None).expect("init pistol runner failed");
 
-    let num_threads = Some(threads);
+    let num_threads = Some(num_threads);
     let src_addr = None;
     let max_attempts = 2;
     let timeout = Some(Duration::from_secs_f64(timeout));

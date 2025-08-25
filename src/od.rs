@@ -16,13 +16,13 @@ pub fn os_detection(
     top_k: usize,
     log_level: PistolLogger,
     timeout: f64,
-    threads: usize,
+    num_threads: usize,
 ) {
     let start = Instant::now();
 
     let _pr = PistolRunner::init(log_level, None, None).expect("init pistol runner failed");
 
-    let num_threads = Some(threads);
+    let num_threads = Some(num_threads);
     let src_addr = None;
     let timeout = Some(Duration::from_secs_f64(timeout));
 
