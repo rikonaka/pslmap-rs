@@ -45,8 +45,8 @@ pub fn port_scanning(
     timeout: f64,
 ) {
     let start = Instant::now();
-
-    let _pr = PistolRunner::init(log_level, None, None).expect("init pistol runner failed");
+    let capture = Some(String::from("scan.pcapng"));
+    let _pr = PistolRunner::init(log_level, capture, None).expect("init pistol runner failed");
 
     let num_threads = None;
     let src_addr = None;
