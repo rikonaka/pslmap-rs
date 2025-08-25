@@ -43,12 +43,13 @@ pub fn port_scanning(
     zombie_port: Option<u16>,      // tcp idle scan use only
     log_level: PistolLogger,
     timeout: f64,
+    threads: usize,
 ) {
     let start = Instant::now();
     let capture = Some(String::from("scan.pcapng"));
     let _pr = PistolRunner::init(log_level, capture, None).expect("init pistol runner failed");
 
-    let num_threads = None;
+    let num_threads = Some(threads);
     let src_addr = None;
     let src_port = None;
     let max_attempts = 2;

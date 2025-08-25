@@ -132,6 +132,10 @@ struct Args {
     #[arg(long, default_value_t = 1.0)]
     timeout: f64,
 
+    /// Threads
+    #[arg(long, default_value_t = 4)]
+    threads: usize,
+
     /// Display log level (debug, warn, info and none)
     #[arg(short, long, default_value = "none")]
     log: String,
@@ -203,6 +207,7 @@ fn main() {
 
     let timeout = args.timeout;
     let log_level = log_level_parser(&args.log);
+    let threads = args.threads;
 
     match args.tools {
         ToolsSubcommand::HD {
@@ -231,7 +236,7 @@ fn main() {
             } else {
                 HostDiscoveryMethod::Mac
             };
-            host_discovery(&targets, hd_method, log_level, timeout);
+            host_discovery(&targets, hd_method, log_level, timeout, threads);
         }
         ToolsSubcommand::PS {
             syn,
@@ -284,6 +289,7 @@ fn main() {
                 zombie_port,
                 log_level,
                 timeout,
+                threads,
             );
         }
         ToolsSubcommand::OD {
@@ -295,7 +301,7 @@ fn main() {
             for t in &mut targets {
                 t.ports = vec![open_tcp_port, close_tcp_port, close_udp_port];
             }
-            os_detection(&targets, top_k, log_level, timeout)
+            os_detection(&targets, top_k, log_level, timeout, threads)
         }
     }
 }

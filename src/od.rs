@@ -1,9 +1,9 @@
-use pistol::os::OsDetect;
-use pistol::os_detect;
 /// remote os detection
 use pistol::PistolLogger;
 use pistol::PistolRunner;
 use pistol::Target;
+use pistol::os::OsDetect;
+use pistol::os_detect;
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::time::Duration;
@@ -11,12 +11,18 @@ use std::time::Instant;
 
 use crate::InfoShow;
 
-pub fn os_detection(targets: &[Target], top_k: usize, log_level: PistolLogger, timeout: f64) {
+pub fn os_detection(
+    targets: &[Target],
+    top_k: usize,
+    log_level: PistolLogger,
+    timeout: f64,
+    threads: usize,
+) {
     let start = Instant::now();
 
     let _pr = PistolRunner::init(log_level, None, None).expect("init pistol runner failed");
 
-    let num_threads = None;
+    let num_threads = Some(threads);
     let src_addr = None;
     let timeout = Some(Duration::from_secs_f64(timeout));
 
