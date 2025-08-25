@@ -129,11 +129,11 @@ struct Args {
     tools: ToolsSubcommand,
 
     /// Timeout
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long = "to", default_value_t = 1.0)]
     timeout: f64,
 
     /// Threads
-    #[arg(long, default_value_t = 4)]
+    #[arg(long = "ts", default_value_t = 4)]
     threads: usize,
 
     /// Display log level (debug, warn, info and none)
